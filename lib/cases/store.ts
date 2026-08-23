@@ -1,15 +1,11 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readRaw, writeRaw } from './persistence';
 
 /**
  * Farmer case store.
  *
- * File-backed JSON rather than a database: a case must survive a dev-server
- * restart during a demo, and nothing here justifies the setup cost of Postgres.
- * The dashboard reads from the same file.
+ * Storage lives in `persistence.ts`: a JSON file locally, Redis when deployed
+ * to a host with a read-only filesystem. This module only knows about cases.
  */
-
-const STORE_PATH = join(process.cwd(), '.data', 'cases.json');
 
 export type CaseStatus = 'open' | 'escalated' | 'resolved';
 
@@ -39,19 +35,8 @@ export type FarmerCase = {
   appointmentLink?: string;
 };
 
-async function readAll(): Promise<FarmerCase[]> {
-  try {
-    return JSON.parse(await readFile(STORE_PATH, 'utf8')) as FarmerCase[];
-  } catch {
-    // Missing or unreadable file simply means no cases yet.
-    return [];
-  }
-}
-
-async function writeAll(cases: FarmerCase[]): Promise<void> {
-  await mkdir(dirname(STORE_PATH), { recursive: true });
-  await writeFile(STORE_PATH, JSON.stringify(cases, null, 2), 'utf8');
-}
+const readAll = () => readRaw<FarmerCase[]>([]);
+const writeAll = (cases: FarmerCase[]) => writeRaw(cases);
 
 /**
  * Case IDs are spoken aloud to a farmer who may be writing them on his hand,
