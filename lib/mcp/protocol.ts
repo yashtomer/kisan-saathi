@@ -96,8 +96,13 @@ export async function handleMcpMessage(
       const args = (params?.arguments ?? {}) as Record<string, unknown>;
       console.log(`[mcp] tools/call ${tool.name}`, JSON.stringify(args));
 
+      const startedAt = Date.now();
+
       try {
         const text = await tool.handler(args, context);
+        // Tool time is dead air on a live call, so it is measured rather than
+        // assumed. Anything approaching a second is worth attention.
+        console.log(`[mcp] ${tool.name} took ${Date.now() - startedAt}ms`);
         return result(id, { content: [{ type: 'text', text }], isError: false });
       } catch (error) {
         // Surfaced to the model as tool output so it can recover in
