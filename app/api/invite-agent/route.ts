@@ -120,18 +120,33 @@ export async function POST(request: NextRequest) {
               prefix_padding_ms: 300, // audio captured before speech is detected
             },
           },
+          // Semantic end-of-speech rather than a silence timer. A farmer
+          // pausing to look at a leaf, or saying "एक मिनट रुको", is not
+          // finished talking — a fixed timeout cuts him off mid-thought.
           end_of_speech: {
-            mode: 'vad',
-            vad_config: {
-              silence_duration_ms: 720, // room to think mid-sentence
+            mode: 'semantic',
+            semantic_config: {
+              silence_duration_ms: 720,
+              max_wait_ms: 2500, // fall back to VAD behaviour rather than hang
+              pause_state_enabled: true, // "hold on" means wait, not respond
             },
           },
         },
       },
-      // Barge-in: the farmer can talk over the agent at any time and be heard.
+      // Selective Attention Locking: the agent locks onto the farmer's voice
+      // and suppresses roughly 95% of other human voices and ambient noise.
+      // Field calls happen with family, traders and machinery in earshot, and
+      // without this every nearby conversation lands in the transcript.
+      sal: { sal_mode: 'locking' },
+      // Barge-in. Keyword triggers are additive insurance for the case the
+      // farmer is shouting over a running tractor and start-of-speech
+      // detection is fighting the noise floor.
       interruption: {
         enable: true,
         mode: 'start_of_speech',
+        keywords_config: {
+          trigger_keywords: ['रुको', 'रुकिए', 'सुनो', 'सुनिए', 'अरे', 'stop', 'wait', 'listen'],
+        },
       },
       // Spoken while the LLM is still thinking, so a pause never sounds like a
       // dropped call — the most common reason a rural caller hangs up.

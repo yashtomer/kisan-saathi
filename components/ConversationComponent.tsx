@@ -25,6 +25,11 @@ import { AgentVisualizer } from 'agora-agent-uikit';
 import { MicButtonWithVisualizer } from 'agora-agent-uikit/rtc';
 import { DEFAULT_AGENT_UID } from '@/lib/agora';
 import {
+  disableDenoiser,
+  enableDenoiser,
+  type DenoiserHandle,
+} from '@/lib/audio/denoiser';
+import {
   getCurrentInProgressMessage,
   getMessageList,
   mapAgentVisualizerState,
@@ -377,6 +382,33 @@ export default function ConversationComponent({
 
   // Publish local mic once the track exists; usePublish waits for RTC connection.
   usePublish([localMicrophoneTrack]);
+
+  /**
+   * AI noise suppression on the outgoing mic.
+   *
+   * Piping only — the track itself stays owned by useLocalMicrophoneTrack, so
+   * this never closes it. If the browser cannot run the model the call carries
+   * on with raw audio.
+   */
+  useEffect(() => {
+    if (!localMicrophoneTrack) return;
+
+    let handle: DenoiserHandle = null;
+    let cancelled = false;
+
+    void enableDenoiser(localMicrophoneTrack).then((result) => {
+      if (cancelled) {
+        void disableDenoiser(result);
+        return;
+      }
+      handle = result;
+    });
+
+    return () => {
+      cancelled = true;
+      void disableDenoiser(handle);
+    };
+  }, [localMicrophoneTrack]);
 
   useClientEvent(client, 'user-joined', (user) => {
     if (user.uid.toString() === agentUID) setIsAgentConnected(true);

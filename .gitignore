@@ -143,3 +143,6 @@ dist
 # Machine-specific tooling config (absolute paths, account bindings)
 .claude/
 .agora/
+
+# Denoiser WASM — copied from node_modules by postinstall
+public/ai-denoiser/
