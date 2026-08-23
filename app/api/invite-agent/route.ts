@@ -10,39 +10,54 @@ import {
 } from 'agora-agents';
 import { ClientStartRequest, AgentResponse } from '@/types/conversation';
 import { DEFAULT_AGENT_UID } from '@/lib/agora';
-
-// System prompt that defines the agent's personality and behavior.
-// Swap this out to change what the agent talks about.
-const ADA_PROMPT = `You are **Ada**, an agentic developer advocate from **Agora**. You help developers understand and build with Agora's Conversational AI platform.
-
-# What Agora Actually Is
-Agora is a real-time communications company. The product you represent is the **Agora Conversational AI Engine** — it lets developers add voice AI agents to any app by connecting ASR, LLM, and TTS into a real-time pipeline over Agora's SD-RTN (Software Defined Real-Time Network). Key facts:
-- The product is called the **Conversational AI Engine** (not "Chorus", not "Harmony", or any other name you might invent)
-- It runs a full ASR → LLM → TTS pipeline with sub-500ms latency
-- It supports Deepgram, Microsoft, and others for ASR; OpenAI, Anthropic, and others for LLM; ElevenLabs, Microsoft, and others for TTS
-- Agora's SD-RTN is its global real-time network infrastructure — not "SDRTN"
-- MCP in this context means **Model Context Protocol** (Anthropic's open standard for connecting AI models to tools/data), not "multi-channel processing"
-- Agora does not have a product called Chorus, Harmony, or any similar name — do not invent product names
-
-# Honesty Rule
-If you don't know a specific fact about Agora, say so plainly and suggest checking docs.agora.io. Never invent product names, feature names, or capabilities.
-
-# Persona & Tone
-- Friendly, technically credible, concise. You're a peer who builds things, not a support agent.
-- Plain English. No marketing fluff.
-
-# Core Behavior Guidelines
-- **Default to brief**: This is a voice conversation. Keep most replies to 1–2 sentences. Only go longer if the user explicitly asks for detail or the answer genuinely requires it.
-- **Never list or enumerate**: No bullet points, no numbered steps. Say the single most important thing.
-- **Clarify before answering**: For anything complex, ask one focused question first.
-- **Ask at most one question per turn**: Never stack questions.
-- **Guide, don't lecture**: Unlock the next step, not everything at once.`;
-
-// First thing the agent says when a user joins the channel.
-const GREETING = `Hi there! I'm Ada, your virtual assistant from Agora. How can I help?`;
+import {
+  buildSystemPrompt,
+  FAILURE_MESSAGE,
+  FILLER_PHRASES,
+  GREETING,
+  SILENCE_PROMPT,
+} from '@/lib/agent/prompt';
+import { fetchWeatherContext } from '@/lib/agent/weather';
 
 // agentUid identifies the AI in the RTC channel and shares its default with the client.
 const agentUid = String(DEFAULT_AGENT_UID);
+
+// MiniMax Hindi voice. An English-tuned voice reading Hindi is the fastest way
+// to lose a rural user. MiniMax ships three Hindi voices — 'hindi_male_1_v2'
+// ("Trustworthy Advisor"), 'hindi_female_1_v2' ("News Anchor"), and
+// 'hindi_female_2_v1' ("Tranquil Woman") — overridable here without a code change.
+const TTS_VOICE_ID = process.env.NEXT_TTS_VOICE_ID ?? 'hindi_male_1_v2';
+
+// Agora's cloud calls our tools over the public internet, so this must be a
+// publicly reachable origin — a tunnel in development, the deployed URL in
+// production. Without it the agent runs tool-less and can only talk.
+const MCP_BASE_URL = process.env.MCP_PUBLIC_URL;
+
+function buildMcpServers() {
+  if (!MCP_BASE_URL) {
+    console.warn('[agent] MCP_PUBLIC_URL not set — starting agent without tools');
+    return undefined;
+  }
+
+  return [
+    {
+      // Name accepts only letters and numbers, max 48 characters.
+      name: 'kisansaathitools',
+      transport: 'streamable_http',
+      endpoint: `${MCP_BASE_URL.replace(/\/$/, '')}/api/mcp`,
+      // Explicit allowlist: the agent may only invoke what we intend it to.
+      allowed_tools: [
+        'get_weather',
+        'search_advisory',
+        'create_case',
+        'escalate_to_expert',
+        'book_expert_callback',
+      ],
+      // A farmer is waiting on the line; give up rather than hold dead air.
+      timeout_ms: 8000,
+    },
+  ];
+}
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -55,7 +70,7 @@ export async function POST(request: NextRequest) {
     // --- 1. Parse request ---
 
     const body: ClientStartRequest = await request.json();
-    const { requester_id, channel_name } = body;
+    const { requester_id, channel_name, farmer } = body;
 
     // Validate required env vars on first request so misconfiguration surfaces
     // with a clear error message rather than a silent failure.
@@ -69,107 +84,130 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // --- 2. Build and start the agent ---
+    // --- 2. Enrich with live conditions ---
 
-    // AgoraClient authenticates API calls to the Agora Conversational AI service.
-    // area: change to Area.EU or Area.AP for European or Asia-Pacific deployments.
+    // Real weather for the farmer's area, folded into the prompt before the
+    // agent speaks. Returns null on timeout or an unknown place name, in which
+    // case the agent simply runs without it.
+    const weather = farmer?.village
+      ? await fetchWeatherContext(farmer.village)
+      : null;
+
+    // --- 3. Build and start the agent ---
+
+    // area: AP keeps the media path inside Asia-Pacific, which matters when the
+    // caller is on rural Indian mobile data.
     const client = new AgoraClient({
-      area: Area.US,
+      area: Area.AP,
       appId,
       appCertificate,
     });
 
     // Pipeline: Deepgram (reseller) STT → OpenAI (reseller) LLM → MiniMax (reseller) TTS.
-    // Omit vendor API keys for supported models — AgentKit infers reseller presets on start (see Agora Console / billing).
+    // Omit vendor API keys for supported models — AgentKit infers reseller presets on start.
     const agent = new Agent({
       client,
-      instructions: ADA_PROMPT,
-      greeting: GREETING,
-      failureMessage: 'Please wait a moment.',
-      maxHistory: 50,
       // VAD controls how the agent detects the start and end of a user's turn.
+      // Tuned for field conditions rather than a quiet desk: farmers pause
+      // mid-thought, and tractors, cattle and wind should not steal the turn.
       turnDetection: {
         config: {
-          speech_threshold: 0.5,
+          speech_threshold: 0.6, // higher bar so ambient noise is not "speech"
           start_of_speech: {
             mode: 'vad',
             vad_config: {
-              interrupt_duration_ms: 160, // ms of speech before interruption triggers
+              interrupt_duration_ms: 240, // brief noise won't cut the agent off
               prefix_padding_ms: 300, // audio captured before speech is detected
             },
           },
           end_of_speech: {
             mode: 'vad',
             vad_config: {
-              silence_duration_ms: 480, // ms of silence before turn ends
+              silence_duration_ms: 720, // room to think mid-sentence
             },
+          },
+        },
+      },
+      // Barge-in: the farmer can talk over the agent at any time and be heard.
+      interruption: {
+        enable: true,
+        mode: 'start_of_speech',
+      },
+      // Spoken while the LLM is still thinking, so a pause never sounds like a
+      // dropped call — the most common reason a rural caller hangs up.
+      fillerWords: {
+        trigger: {
+          mode: 'fixed_time',
+          fixed_time_config: { response_wait_ms: 700 },
+        },
+        content: {
+          mode: 'static',
+          static_config: {
+            phrases: [...FILLER_PHRASES],
+            selection_rule: 'shuffle',
           },
         },
       },
       // RTM is required for transcript events in the browser client.
       // enable_tools is required for MCP tool invocation.
       advancedFeatures: { enable_rtm: true, enable_tools: true },
-      // Required for browser RTM events:
-      // - data_channel: 'rtm' enables RTM delivery path for state/metrics/errors
-      // - enable_error_message emits AGENT_ERROR payloads
-      // - enable_metrics emits AGENT_METRICS latency payloads
       parameters: {
         // web client → ultra-low-latency chorus profile
         audio_scenario: 'chorus',
         data_channel: 'rtm',
         enable_error_message: true,
         enable_metrics: true,
+        // Re-engage rather than sit in silence when the farmer stops talking.
+        silence_config: {
+          // Longer than the slowest tool-assisted turn, so the agent never
+          // talks over its own thinking.
+          timeout_ms: 20000,
+          action: 'speak',
+          content: SILENCE_PROMPT,
+        },
       },
     })
       .withStt(
         new DeepgramSTT({
           model: 'nova-3',
-          language: 'en',
+          // 'multi' lets one stream carry Hindi and English, including
+          // code-switching mid-sentence, without asking the farmer to pick.
+          language: 'multi',
         }),
-        // BYOK: uncomment the following block and set NEXT_DEEPGRAM_API_KEY
-        // new DeepgramSTT({
-        //   apiKey: requireEnv('NEXT_DEEPGRAM_API_KEY'),
-        //   model: 'nova-3',
-        //   language: 'en',
-        // }),
       )
       .withLlm(
         new OpenAI({
-          model: 'gpt-4o-mini',
+          // gpt-4.1-mini kept choosing to ask another question instead of
+          // calling a tool; gpt-5-mini follows the tool instructions far more
+          // reliably, which matters more here than its slightly higher latency.
+          model: 'gpt-5-mini',
+          systemMessages: [
+            { role: 'system', content: buildSystemPrompt(farmer, weather) },
+          ],
           greetingMessage: GREETING,
-          failureMessage: 'Please wait a moment.',
-          maxHistory: 15,
+          failureMessage: FAILURE_MESSAGE,
+          // Triage spans many turns and the agent must never re-ask something
+          // already answered, so history is deeper than the quickstart default.
+          maxHistory: 40,
+          mcpServers: buildMcpServers(),
+          // GPT-5 models reject `max_tokens` (they want `max_completion_tokens`)
+          // and refuse any temperature or top_p other than the default. Passing
+          // the GPT-4-era params here returns 400 on every turn, which surfaces
+          // to the farmer as the failure message and nothing else.
           params: {
-            max_tokens: 1024,
-            temperature: 0.7,
-            top_p: 0.95,
+            max_completion_tokens: 1024,
+            // GPT-5 models think before answering, which cost ~7s to first
+            // token — unusable on a call. Capping the reasoning budget keeps
+            // the tool-calling reliability without the wait.
+            reasoning_effort: 'low',
           },
         }),
-        // BYOK: uncomment the following block and set NEXT_LLM_API_KEY and NEXT_LLM_URL
-        // new OpenAI({
-        //   apiKey: requireEnv('NEXT_LLM_API_KEY'),
-        //   url: requireEnv('NEXT_LLM_URL'),
-        //   model: 'gpt-4o-mini',
-        //   greetingMessage: GREETING,
-        //   failureMessage: 'Please wait a moment.',
-        //   maxHistory: 15,
-        //   maxTokens: 1024,
-        //   temperature: 0.7,
-        //   topP: 0.95,
-        // }),
       )
       .withTts(
         new MiniMaxTTS({
           model: 'speech_2_6_turbo',
-          voiceId: 'English_captivating_female1',
+          voiceId: TTS_VOICE_ID,
         }),
-        // BYOK — ElevenLabs (set NEXT_ELEVENLABS_API_KEY; optional NEXT_ELEVENLABS_VOICE_ID)
-        // new (await import('agora-agents')).ElevenLabsTTS({
-        //   key: requireEnv('NEXT_ELEVENLABS_API_KEY'),
-        //   modelId: 'eleven_flash_v2_5',
-        //   voiceId: process.env.NEXT_ELEVENLABS_VOICE_ID ?? 'pNInz6obpgDQGcFmaJgB',
-        //   sampleRate: 24000,
-        // }),
       );
 
     // remoteUids restricts the agent to only process audio from this user
@@ -177,12 +215,17 @@ export async function POST(request: NextRequest) {
       channel: channel_name,
       agentUid,
       remoteUids: [requester_id],
-      idleTimeout: 30,
+      idleTimeout: 60, // rural callers pause; 30s hung up on them too eagerly
       expiresIn: ExpiresIn.hours(1),
       debug: false, // enable debug to show restful API calls in the console
     });
 
     const agentId = await session.start();
+    console.log(
+      `[agent] started ${agentId} on channel ${channel_name}` +
+        `${weather ? ' (weather loaded)' : ''}` +
+        `${MCP_BASE_URL ? ' (tools enabled)' : ' (NO TOOLS)'}`,
+    );
 
     return NextResponse.json({
       agent_id: agentId,

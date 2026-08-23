@@ -137,3 +137,9 @@ dist
 .pnpm-store/
 
 .DS_Store
+# Local case store (farmer data — never commit)
+.data/
+
+# Machine-specific tooling config (absolute paths, account bindings)
+.claude/
+.agora/

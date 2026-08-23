@@ -7,9 +7,18 @@ export interface AgoraTokenData {
   agentId?: string;
 }
 
+/** Pre-call details, so the agent never spends voice turns on the basics. */
+export interface FarmerContext {
+  name?: string;
+  village?: string;
+  crop?: string;
+}
+
 export interface ClientStartRequest {
   requester_id: string;
   channel_name: string;
+  /** Optional: absent when the farmer skips the form or dials in by phone. */
+  farmer?: FarmerContext;
 }
 
 export interface StopConversationRequest {

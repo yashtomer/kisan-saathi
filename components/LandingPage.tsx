@@ -54,7 +54,21 @@ const AgoraProvider = dynamic(
   { ssr: false },
 );
 
-export default function LandingPage() {
+/**
+ * `embedded` renders the experience inside a container (the dashboard's call
+ * modal) instead of claiming the whole viewport.
+ */
+export default function LandingPage({
+  embedded = false,
+  endSignal = 0,
+  onEnded,
+}: {
+  embedded?: boolean;
+  /** Bump this to ask the page to hang up — used by the dashboard's call modal. */
+  endSignal?: number;
+  /** Fires once the agent has been stopped and RTM torn down. */
+  onEnded?: () => void;
+}) {
   const [showConversation, setShowConversation] = useState(false);
 
   // Preload heavy modules on mount so they're already cached when the user
@@ -201,8 +215,30 @@ export default function LandingPage() {
     setShowConversation(false);
   };
 
+  // A parent (the dashboard call modal) can ask for a clean hang-up: stop the
+  // agent and tear down RTM before unmounting, rather than leaving the agent
+  // running until its idle timeout.
+  const endRef = useRef(handleEndConversation);
+  endRef.current = handleEndConversation;
+
+  useEffect(() => {
+    if (!endSignal) return;
+    let cancelled = false;
+    void (async () => {
+      await endRef.current();
+      if (!cancelled) onEnded?.();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [endSignal, onEnded]);
+
   return (
-    <div className="relative flex h-dvh min-h-screen flex-col overflow-hidden bg-background text-foreground">
+    <div
+      className={`relative flex flex-col overflow-hidden bg-background text-foreground ${
+        embedded ? 'h-full min-h-0' : 'h-dvh min-h-screen'
+      }`}
+    >
       {/* Hero shell: either shows the pre-call CTA or swaps in the live conversation experience. */}
       <div
         className={`flex min-h-0 flex-1 flex-col ${

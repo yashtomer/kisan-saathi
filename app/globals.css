@@ -192,3 +192,42 @@ body {
     max-height: 3.5rem;
   }
 }
+
+/*
+ * Expert case queue — always light.
+ *
+ * The dashboard is read in daylight, in an office or on a phone in the field,
+ * and is printed/screenshotted for handover. It pins the light token set rather
+ * than following the OS so it looks the same for every agronomist.
+ */
+.expert-surface {
+  color-scheme: light;
+
+  --background:       40 20% 97%;
+  --surface:          40 16% 95%;
+  --surface-elevated: 0 0% 100%;
+  --card:             0 0% 100%;
+  --card-foreground:  200 18% 14%;
+  --popover:          0 0% 100%;
+  --popover-foreground: 200 18% 14%;
+  --muted:            40 12% 93%;
+
+  --border:           38 14% 87%;
+  --input:            38 14% 87%;
+
+  --foreground:       200 18% 14%;
+  --muted-foreground: 200 8% 42%;
+
+  --secondary:            40 14% 94%;
+  --secondary-foreground: 200 18% 14%;
+
+  --primary:            174 62% 30%;
+  --primary-foreground: 0 0% 100%;
+  --accent:             32 78% 42%;
+  --accent-foreground:  0 0% 100%;
+
+  --destructive:            8 62% 44%;
+  --destructive-foreground: 0 0% 100%;
+
+  --ring: 174 62% 30%;
+}
