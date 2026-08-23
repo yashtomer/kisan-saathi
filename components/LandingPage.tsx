@@ -62,12 +62,15 @@ export default function LandingPage({
   embedded = false,
   endSignal = 0,
   onEnded,
+  voiceId,
 }: {
   embedded?: boolean;
   /** Bump this to ask the page to hang up — used by the dashboard's call modal. */
   endSignal?: number;
   /** Fires once the agent has been stopped and RTM torn down. */
   onEnded?: () => void;
+  /** Voice the agent speaks with; read when the conversation starts. */
+  voiceId?: string;
 }) {
   const [showConversation, setShowConversation] = useState(false);
 
@@ -112,6 +115,7 @@ export default function LandingPage({
           body: JSON.stringify({
             requester_id: responseData.uid,
             channel_name: responseData.channel,
+            voice_id: voiceId,
           } as ClientStartRequest),
         })
           .then(async (res) => {

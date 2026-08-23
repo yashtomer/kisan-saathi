@@ -19,6 +19,8 @@ export interface ClientStartRequest {
   channel_name: string;
   /** Optional: absent when the farmer skips the form or dials in by phone. */
   farmer?: FarmerContext;
+  /** Voice id from the offered list; validated server-side. */
+  voice_id?: string;
 }
 
 export interface StopConversationRequest {

@@ -18,15 +18,15 @@ import {
   SILENCE_PROMPT,
 } from '@/lib/agent/prompt';
 import { fetchWeatherContext } from '@/lib/agent/weather';
+import { resolveVoiceId } from '@/lib/agent/voices';
 
 // agentUid identifies the AI in the RTC channel and shares its default with the client.
 const agentUid = String(DEFAULT_AGENT_UID);
 
-// MiniMax Hindi voice. An English-tuned voice reading Hindi is the fastest way
-// to lose a rural user. MiniMax ships three Hindi voices — 'hindi_male_1_v2'
-// ("Trustworthy Advisor"), 'hindi_female_1_v2' ("News Anchor"), and
-// 'hindi_female_2_v1' ("Tranquil Woman") — overridable here without a code change.
-const TTS_VOICE_ID = process.env.NEXT_TTS_VOICE_ID ?? 'hindi_male_1_v2';
+// Fallback when the caller does not pick one. See lib/agent/voices.ts for the
+// offered list; an English-tuned voice reading Hindi is the fastest way to
+// lose a rural user, so the default is a Hindi voice.
+const FALLBACK_VOICE_ID = process.env.NEXT_TTS_VOICE_ID;
 
 // Agora's cloud calls our tools over the public internet, so this must be a
 // publicly reachable origin — a tunnel in development, the deployed URL in
@@ -70,7 +70,11 @@ export async function POST(request: NextRequest) {
     // --- 1. Parse request ---
 
     const body: ClientStartRequest = await request.json();
-    const { requester_id, channel_name, farmer } = body;
+    const { requester_id, channel_name, farmer, voice_id } = body;
+
+    // Never pass a client-supplied id straight to the vendor: unknown values
+    // fall back to the default rather than failing the call.
+    const voiceId = resolveVoiceId(voice_id ?? FALLBACK_VOICE_ID);
 
     // Validate required env vars on first request so misconfiguration surfaces
     // with a clear error message rather than a silent failure.
@@ -221,7 +225,7 @@ export async function POST(request: NextRequest) {
       .withTts(
         new MiniMaxTTS({
           model: 'speech_2_6_turbo',
-          voiceId: TTS_VOICE_ID,
+          voiceId,
         }),
       );
 
@@ -239,7 +243,8 @@ export async function POST(request: NextRequest) {
     console.log(
       `[agent] started ${agentId} on channel ${channel_name}` +
         `${weather ? ' (weather loaded)' : ''}` +
-        `${MCP_BASE_URL ? ' (tools enabled)' : ' (NO TOOLS)'}`,
+        `${MCP_BASE_URL ? ' (tools enabled)' : ' (NO TOOLS)'}` +
+        ` voice=${voiceId}`,
     );
 
     return NextResponse.json({

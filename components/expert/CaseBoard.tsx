@@ -106,6 +106,7 @@ export default function CaseBoard() {
   const [loaded, setLoaded] = useState(false);
   const [live, setLive] = useState(true);
   const [callOpen, setCallOpen] = useState(false);
+  const [toolsReachable, setToolsReachable] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -126,6 +127,29 @@ export default function CaseBoard() {
     const timer = setInterval(load, POLL_MS);
     return () => clearInterval(timer);
   }, [load]);
+
+  /**
+   * Tools live behind a public URL that Agora's cloud calls. When that URL
+   * goes stale — a tunnel restarted, a laptop slept — the agent still answers
+   * but silently stops using its tools, which is a miserable thing to discover
+   * mid-demo. Check before anyone picks up the phone.
+   */
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const response = await fetch('/api/health', { cache: 'no-store' });
+        const body = (await response.json()) as {
+          checks?: { mcpReachable?: boolean };
+        };
+        setToolsReachable(body.checks?.mcpReachable !== false);
+      } catch {
+        setToolsReachable(true); // never cry wolf on a transient fetch failure
+      }
+    };
+    check();
+    const timer = setInterval(check, 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   const counts = useMemo(
     () => ({
@@ -246,6 +270,19 @@ export default function CaseBoard() {
           </div>
         </div>
       </header>
+
+      {!toolsReachable && (
+        <div className="border-b border-destructive/30 bg-destructive/10">
+          <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5 text-xs text-destructive sm:px-8">
+            <strong className="font-semibold">Tools are unreachable.</strong>
+            <span>
+              The agent will still talk, but it cannot check weather, look up
+              advisories, or save a case. Restart the tunnel and update
+              MCP_PUBLIC_URL.
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="mx-auto max-w-[1400px] px-5 py-5 sm:px-8">
         {/* Counts double as filters — the number and the way to act on it are

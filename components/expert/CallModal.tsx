@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import LandingPage from '@/components/LandingPage';
+import { DEFAULT_VOICE_ID, VOICES } from '@/lib/agent/voices';
 
 /**
  * Call panel for the dashboard.
@@ -14,6 +15,7 @@ import LandingPage from '@/components/LandingPage';
 export default function CallModal({ onClose }: { onClose: () => void }) {
   const [mounted, setMounted] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [voiceId, setVoiceId] = useState(DEFAULT_VOICE_ID);
 
   useEffect(() => setMounted(true), []);
 
@@ -72,10 +74,25 @@ export default function CallModal({ onClose }: { onClose: () => void }) {
             <span className="text-sm font-medium text-foreground">
               Talk to Kisan Saathi
             </span>
-            <span className="hidden text-xs text-muted-foreground sm:inline">
+            <span className="hidden text-xs text-muted-foreground lg:inline">
               cases appear in the queue behind this window, live
             </span>
           </div>
+
+          <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="hidden sm:inline">Voice</span>
+            <select
+              value={voiceId}
+              onChange={(event) => setVoiceId(event.target.value)}
+              className="rounded-md border border-border bg-card px-2 py-1.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {VOICES.map((voice) => (
+                <option key={voice.id} value={voice.id}>
+                  {voice.label} — {voice.note}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <button
             type="button"
@@ -97,6 +114,7 @@ export default function CallModal({ onClose }: { onClose: () => void }) {
             embedded
             endSignal={ending ? 1 : 0}
             onEnded={onClose}
+            voiceId={voiceId}
           />
         </div>
       </div>
