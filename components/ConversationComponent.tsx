@@ -374,6 +374,43 @@ export default function ConversationComponent({
   // INTERRUPTED must be included — if the agent's first turn is cut off,
   // messageList stays empty and the first interrupted turn is never shown.
   const messageList = useMemo(() => getMessageList(transcript), [transcript]);
+  /**
+   * Ships the transcript to the server so it can be attached to any case the
+   * agent raised during this call.
+   *
+   * Sent periodically rather than only at hang-up: calls end abruptly — a
+   * dropped signal, a closed tab — and a case with the extracted fields but no
+   * conversation is exactly the situation this feature exists to prevent.
+   */
+  useEffect(() => {
+    if (messageList.length === 0) return;
+
+    const send = async () => {
+      try {
+        await fetch('/api/cases/transcript', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            channel: agoraData.channel,
+            turns: messageList.map((item) => ({
+              // The agent publishes under a known UID; everything else is the
+              // farmer speaking.
+              speaker:
+                item.uid === DEFAULT_AGENT_UID ? 'agent' : 'farmer',
+              text: item.text,
+              at: new Date(item.createdAt ?? Date.now()).toISOString(),
+            })),
+          }),
+        });
+      } catch {
+        // Best effort. A missing transcript degrades the case; a thrown error
+        // here would interrupt the call.
+      }
+    };
+
+    const timer = setTimeout(send, 3000);
+    return () => clearTimeout(timer);
+  }, [messageList, agoraData.channel]);
 
   const currentInProgressMessage = useMemo(() => {
     // The live partial turn renders separately from the completed history list.

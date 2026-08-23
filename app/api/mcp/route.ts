@@ -24,13 +24,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Which call this is. Set when the agent is configured; absent for manual
+  // curl testing, which simply produces cases with no transcript attached.
+  const channel = request.nextUrl.searchParams.get('channel') ?? undefined;
+
   // The spec permits a batch; the engine sends single messages, but handling
   // both costs one line.
   const messages = Array.isArray(body) ? body : [body];
   const responses = [];
 
   for (const message of messages) {
-    const response = await handleMcpMessage(message, TOOLS);
+    const response = await handleMcpMessage(message, TOOLS, { channel });
     if (response) responses.push(response);
   }
 

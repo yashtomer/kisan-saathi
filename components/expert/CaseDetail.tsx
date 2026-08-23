@@ -129,6 +129,40 @@ export default function CaseDetail({
         </div>
       )}
 
+      {item.transcript && item.transcript.length > 0 && (
+        <details className="group rounded-lg border border-border">
+          <summary className="cursor-pointer list-none px-3.5 py-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <span className="font-[family-name:var(--font-data)] uppercase tracking-[0.14em]">
+              Full call
+            </span>
+            <span className="ml-2 tabular-nums opacity-70">
+              {item.transcript.length} turns
+            </span>
+            <span className="ml-2 opacity-60 group-open:hidden">show</span>
+            <span className="ml-2 hidden opacity-60 group-open:inline">hide</span>
+          </summary>
+
+          {/* Capped height: a long call should not push the actions off screen. */}
+          <div className="max-h-72 overflow-y-auto border-t border-border px-3.5 py-3">
+            <ol className="flex flex-col gap-2.5">
+              {item.transcript.map((turn, index) => (
+                <li
+                  key={`${turn.at}-${index}`}
+                  className={
+                    turn.speaker === 'agent' ? 'text-muted-foreground' : ''
+                  }
+                >
+                  <span className="font-[family-name:var(--font-data)] text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                    {turn.speaker === 'agent' ? 'Kisan Saathi' : 'Farmer'}
+                  </span>
+                  <p className="text-sm leading-relaxed">{turn.text}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </details>
+      )}
+
       {item.status !== 'resolved' && (
         <button
           type="button"

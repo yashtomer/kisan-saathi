@@ -33,7 +33,7 @@ const FALLBACK_VOICE_ID = process.env.NEXT_TTS_VOICE_ID;
 // production. Without it the agent runs tool-less and can only talk.
 const MCP_BASE_URL = process.env.MCP_PUBLIC_URL;
 
-function buildMcpServers() {
+function buildMcpServers(channel: string) {
   if (!MCP_BASE_URL) {
     console.warn('[agent] MCP_PUBLIC_URL not set — starting agent without tools');
     return undefined;
@@ -44,7 +44,9 @@ function buildMcpServers() {
       // Name accepts only letters and numbers, max 48 characters.
       name: 'kisansaathitools',
       transport: 'streamable_http',
-      endpoint: `${MCP_BASE_URL.replace(/\/$/, '')}/api/mcp`,
+      // The channel travels on the URL so tool calls can be tied back to the
+      // call that produced them; MCP itself carries no session identity.
+      endpoint: `${MCP_BASE_URL.replace(/\/$/, '')}/api/mcp?channel=${encodeURIComponent(channel)}`,
       // Explicit allowlist: the agent may only invoke what we intend it to.
       allowed_tools: [
         'get_weather',
@@ -208,7 +210,7 @@ export async function POST(request: NextRequest) {
           // Triage spans many turns and the agent must never re-ask something
           // already answered, so history is deeper than the quickstart default.
           maxHistory: 40,
-          mcpServers: buildMcpServers(),
+          mcpServers: buildMcpServers(channel_name),
           // GPT-5 models reject `max_tokens` (they want `max_completion_tokens`)
           // and refuse any temperature or top_p other than the default. Passing
           // the GPT-4-era params here returns 400 on every turn, which surfaces

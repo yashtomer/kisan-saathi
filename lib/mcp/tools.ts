@@ -138,8 +138,9 @@ export const TOOLS: ToolDefinition[] = [
       },
       required: ['crop', 'symptoms'],
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       const record = await createCase({
+        sessionChannel: context.channel,
         crop: asString(args.crop, 'unknown'),
         symptoms: asString(args.symptoms),
         farmerName: asString(args.farmer_name) || undefined,

@@ -12,12 +12,22 @@ const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
 
 const SERVER_INFO = { name: 'kisan-saathi-tools', version: '1.0.0' };
 
+/**
+ * Per-call context. MCP requests carry no session identity of their own, so the
+ * channel is put on the endpoint URL when the agent is configured and read back
+ * here — that is what lets a case be tied to the call that produced it.
+ */
+export type ToolContext = { channel?: string };
+
 export type ToolDefinition = {
   name: string;
   description: string;
   /** JSON Schema for the arguments the model must supply. */
   inputSchema: Record<string, unknown>;
-  handler: (args: Record<string, unknown>) => Promise<string>;
+  handler: (
+    args: Record<string, unknown>,
+    context: ToolContext,
+  ) => Promise<string>;
 };
 
 type JsonRpcRequest = {
@@ -46,6 +56,7 @@ const failure = (id: JsonRpcRequest['id'], code: number, message: string) => ({
 export async function handleMcpMessage(
   request: JsonRpcRequest,
   tools: ToolDefinition[],
+  context: ToolContext = {},
 ): Promise<Record<string, unknown> | null> {
   const { method, id, params } = request;
 
@@ -86,7 +97,7 @@ export async function handleMcpMessage(
       console.log(`[mcp] tools/call ${tool.name}`, JSON.stringify(args));
 
       try {
-        const text = await tool.handler(args);
+        const text = await tool.handler(args, context);
         return result(id, { content: [{ type: 'text', text }], isError: false });
       } catch (error) {
         // Surfaced to the model as tool output so it can recover in

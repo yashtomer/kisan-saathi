@@ -9,6 +9,13 @@ import { readRaw, writeRaw } from './persistence';
 
 export type CaseStatus = 'open' | 'escalated' | 'resolved';
 
+/** One spoken turn, as it appeared in the live transcript. */
+export type TranscriptTurn = {
+  speaker: 'farmer' | 'agent';
+  text: string;
+  at: string;
+};
+
 export type FarmerCase = {
   id: string;
   createdAt: string;
@@ -33,6 +40,14 @@ export type FarmerCase = {
   appointmentAt?: string;
   /** One-click "add to Google Calendar" link for the agronomist. */
   appointmentLink?: string;
+  /** RTC channel of the call, used to attach the transcript afterwards. */
+  sessionChannel?: string;
+  /**
+   * The conversation itself. Extracted fields are the agent's reading of the
+   * call; this is what the farmer actually said, which is what an agronomist
+   * will want when the reading looks wrong.
+   */
+  transcript?: TranscriptTurn[];
 };
 
 const readAll = () => readRaw<FarmerCase[]>([]);
@@ -111,6 +126,25 @@ export async function setCaseAppointment(
   match.appointmentLink = appointmentLink;
   await writeAll(cases);
   return match;
+}
+
+/**
+ * Attaches a transcript to every case raised during one call.
+ *
+ * Keyed by channel rather than case id because the browser knows which call it
+ * is in, but not which cases the agent chose to create.
+ */
+export async function attachTranscript(
+  channel: string,
+  transcript: TranscriptTurn[],
+): Promise<number> {
+  const cases = await readAll();
+  const matches = cases.filter((entry) => entry.sessionChannel === channel);
+  if (matches.length === 0) return 0;
+
+  for (const match of matches) match.transcript = transcript;
+  await writeAll(cases);
+  return matches.length;
 }
 
 export async function listCases(): Promise<FarmerCase[]> {
